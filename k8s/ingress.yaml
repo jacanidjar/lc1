@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flask-app-ingress
+  namespace: app-prod
+  annotations:
+    # ALB Scheme: Internet Facing for public access
+    # Esquema ALB: Internet Facing para acesso público
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # Use IP targeting for Fargate (No Nodes)
+    # Usa IP targeting para Fargate (Sem Nodes)
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: flask-app-service
+            port:
+              number: 80
