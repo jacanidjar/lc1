@@ -1,7 +1,41 @@
-# Variables are kept minimal as most logic is in locals
-# Variáveis mantidas no mínimo, pois a lógica está em locals
-variable "container_image" {
-  description = "The Docker image to deploy" # A imagem Docker para deploy
+variable "region" {
+  description = "AWS region"
   type        = string
-  default     = "nginx:latest" # Placeholder, overwritten by CI/CD
+  default     = "us-east-1"
+}
+
+variable "cluster_name" {
+  description = "EKS Cluster Name"
+  type        = string
+  default     = "ledn-cluster"
+}
+
+variable "vpc_cidr" {
+  description = "VPC CIDR"
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "environment" {
+  description = "Environment name"
+  type        = string
+  default     = "prod"
+}
+
+variable "candidate_name" {
+  description = "Candidate name for tags"
+  type        = string
+  default     = "Luis-Fernando"
+}
+
+variable "github_repo" {
+  description = "GitHub Repository (Format: User/Repo)"
+  type        = string
+  default     = "my-user/ledn-challenge"
+}
+
+variable "app_image" {
+  description = "Docker image URL for the application"
+  type        = string
+  default     = "nginx:latest" # Default for initial bootstrap
 }

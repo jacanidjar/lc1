@@ -1,17 +1,24 @@
 output "cluster_endpoint" {
   description = "Endpoint for EKS control plane"
-  # Endpoint do plano de controle do EKS
   value       = module.eks.cluster_endpoint
+}
+
+output "cluster_security_group_id" {
+  description = "Security group ids attached to the cluster control plane"
+  value       = module.eks.cluster_security_group_id
+}
+
+output "region" {
+  description = "AWS region"
+  value       = var.region
 }
 
 output "cluster_name" {
   description = "Kubernetes Cluster Name"
-  # Nome do Cluster Kubernetes
   value       = module.eks.cluster_name
 }
 
-output "vpc_id" {
-  description = "VPC ID"
-  # ID da VPC
-  value       = module.vpc.vpc_id
+output "github_actions_role_arn" {
+  description = "ARN of the IAM Role for GitHub Actions (Add this to Repo Secrets as AWS_ROLE_ARN)"
+  value       = module.iam_github_oidc_role.arn
 }

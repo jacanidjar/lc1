@@ -1,64 +1,103 @@
 # Ledn DevOps Challenge (EKS Fargate Edition)
 
 ## 1. Project Overview
-This repository contains a production-ready infrastructure for a Python web app on **AWS EKS (Kubernetes)** running on **Fargate (Serverless)**, managed by **Terraform** and **GitHub Actions**.
+This repository contains a production-ready deployment for a Python web app on AWS EKS using Fargate (Serverless Kubernetes), managed by Terraform and GitHub Actions.
 
-## 2. Architecture
-- **EKS Cluster:** v1.28
-- **Compute:** Fargate Only (No EC2 Nodes).
-- **Networking:** Multi-AZ VPC (us-east-1a, us-east-1b).
-- **Ingress:** AWS Application Load Balancer (ALB).
+## 2. Architecture Summary
+*   **Infrastructure:** EKS Cluster `ledn-cluster` running 100% on Fargate.
+*   **Networking:** VPC spanning 2 AZs (us-east-1a, us-east-1b) with private subnets for workloads and public subnets for the Load Balancer.
+*   **CI/CD:** GitHub Actions for automated Docker builds (ECR) and Terraform provisioning.
 
-## 3. How to Deploy
-1.  **Infrastructure:**
+### Infrastructure Diagram
+```mermaid
+graph TB
+    subgraph "AWS Cloud (us-east-1)"
+        subgraph "VPC: ledn-cluster-vpc"
+            direction TB
+            
+            ALB[AWS Load Balancer]
+            NAT[NAT Gateway]
+            IGW[Internet Gateway]
+            
+            subgraph "Public Subnets"
+                AZ1_PUB[us-east-1a public]
+                AZ2_PUB[us-east-1b public]
+            end
+
+            subgraph "Private Subnets"
+                AZ1_PRIV[us-east-1a private]
+                AZ2_PRIV[us-east-1b private]
+                
+                subgraph "Fargate Profile: main"
+                    AppPod1[Flask App - Pod 1]
+                    AppPod2[Flask App - Pod 2]
+                    CoreDNS[CoreDNS System Pods]
+                end
+            end
+        end
+
+        ECR[Amazon ECR]
+        Users[Internet Users]
+    end
+
+    Users --> IGW
+    IGW --> ALB
+    ALB --> AZ1_PUB & AZ2_PUB
+    AZ1_PUB & AZ2_PUB --> AppPod1 & AppPod2
+    
+    AppPod1 & AppPod2 --> NAT
+    NAT --> IGW
+    
+    ECR -. Pull Images .-> AppPod1 & AppPod2
+    
+    style ALB fill:#FF9900,stroke:#232F3E,color:white
+    style Fargate Profile: main fill:#3F8624,stroke:#232F3E,color:white
+    style AppPod1 fill:#D86613,stroke:#232F3E,color:white
+    style AppPod2 fill:#D86613,stroke:#232F3E,color:white
+    style ECR fill:#green,stroke:#232F3E,color:white
+```
+
+## 3. How to Deploy & Destroy
+
+### Prerequisites
+*   AWS CLI connected to your account.
+*   Terraform installed locally.
+
+### Step 1: Bootstrap Auth (One-time Setup)
+Because GitHub Actions needs permission to access your AWS account, you must run Terraform **locally** once to set up the OpenID Connect (OIDC) provider.
+
+1.  Edit `terraform/variables.tf` and set `github_repo` to your repository (e.g., `your-user/your-repo`).
+2.  Run the initial provision:
     ```bash
     cd terraform
     terraform init
-    terraform apply
+    terraform apply -auto-approve
     ```
-2.  **Application:**
-    Push to `main` branch to trigger GitHub Actions.
+3.  **Critical:** Copy the output value `github_actions_role_arn` from the terminal.
+4.  Go to your GitHub Repository -> Settings -> Secrets and variables -> Actions.
+    *   Create a New Repository Secret named `AWS_ROLE_ARN`.
+    *   Paste the value you copied.
 
-## 4. Submission & Requirements Checklist
-This project fulfills the **Ledn DevOps Challenge** requirements:
+### Step 2: Automated Deployment
+Now that the trust is established, simply push to the `main` branch. The GitHub Action will take over:
+1.  Build and push the Docker image to ECR.
+2.  Update Infrastructure via Terraform.
+3.  Deploy Kubernetes manifests.
 
-### ✅ Requirements Matched:
-1.  **Application**: Flask App returning JSON + Dockerfile.
-2.  **Infrastructure**: Terraform (Modular with Registry) + VPC (2 AZs/Private Subnets) + EKS + ALB.
-3.  **CI/CD**: GitHub Actions (Build -> **Test** -> Push -> Deploy).
-4.  **Monitoring**: CloudWatch Alarm (CPU).
-5.  **Scaling**: HPA (Autoscaling) + Fargate.
-6.  **Bonus**: **EKS Deployment** (Kubernetes) implemented!
+### Destroy
+```bash
+cd terraform
+terraform destroy -auto-approve
+```
 
-### 📝 Submission Steps
-1.  Repository is private.
-2.  README includes architecture, deploy steps, and design choices.
-3.  **Action Required**: Invite `Ledn-Reviewer` as a contributor.
-4.  **Action Required**: Email Ledn confirming readiness.
+## 4. The 'Ace in the Hole' (Strategic Design Choices)
 
-## 5. The "Ace in the Hole" (Strategic Design Choices)
+> **Architecture:** EKS on Fargate was chosen to eliminate EC2 management (patching/scaling), providing a true serverless experience.
+> **High Availability:** The solution uses a Multi-AZ VPC. The ALB distributes traffic across private subnets in two zones.
+> **Zero Downtime:** Configured RollingUpdates with Readiness Probes ensure no traffic hits a pod until it is fully healthy.
+> **Security:** Strict network isolation. Pods have no public IPs; all ingress is managed via the AWS Load Balancer Controller.
 
-## 6. Monitoring & Scaling
-### Monitoring (Monitoramento)
-- **Tool**: AWS CloudWatch.
-- **Metric**: CPU Utilization (Cluster Level).
-- **Alarm**: `eks-high-cpu` triggers if Average CPU > 80% for 2 evaluation periods (Managed via Terraform).
-
-### Scaling (Escalabilidade)
-- **Horizontal Pod Autoscaler (HPA)**:
-    - Scales Pods from **2 to 10** based on CPU utilization (Target: 50%).
-    - Manifest: `k8s/hpa.yaml`.
-- **Infrastructure**: Fargate automatically scales compute capacity as requested by the Scheduler.
-- **How to Test Scaling (Como testar)**:
-    1.  Deploy the infrastructure.
-    2.  Run a load generator (e.g., `kubectl run -i --tty load-generator --image=busybox /bin/sh`).
-    3.  Inside the pod, run a loop: `while true; do wget -q -O- http://flask-app-service.app-prod; done`.
-    4.  Watch HPA: `kubectl get hpa -n app-prod -w`. You will see replicas increase as CPU rises.
-
-## 6. Security Improvement Plan (Plano de Melhoria de Segurança)
-While the current setup implements "Least Privilege", future improvements could include:
-1.  **WAF (Web Application Firewall)**: Attach to ALB to block malicious traffic (SQLi, XSS).
-2.  **Network Policies**: Restrict Pod-to-Pod communication within the cluster.
-3.  **Image Scanning**: Enable ECR Scan on Push for vulnerability detection.
-4.  **Secrets Management**: Integrate AWS Secrets Manager using "External Secrets Operator" instead of environment variables.
-
+## 5. Security & Cost Optimization
+*   **Cost:** Minimal Fargate sizing (0.25 vCPU) and a single NAT Gateway reduce monthly overhead.
+*   **Isolation:** Application pods run exclusively in private subnets.
+*   **Permissions:** IAM Roles for Service Accounts (IRSA) ensure least-privilege access.

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ledn DevOps Challenge - Infrastructure Diagram</title>
+</head>
+
+<body
+    style="background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px;">
+
+    <div style="text-align: center; margin-bottom: 20px;">
+        <h1 style="color: #232F3E;">EKS Fargate Architecture</h1>
+        <p style="color: #666;">High-Level Request Flow & Network Isolation</p>
+    </div>
+
+    <div
+        style="background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 1200px; margin: 0 auto; overflow: auto;">
+        <pre class="mermaid">
+flowchart TD
+    %% Styling Definitions
+    classDef user fill:#fff,stroke:#333,stroke-width:2px,color:#333;
+    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:white;
+    classDef vpc fill:#f4f7fa,stroke:#232F3E,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef public fill:#e1f5fe,stroke:#0277bd,stroke-width:1px;
+    classDef private fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px;
+    classDef compute fill:#D86613,stroke:#232F3E,color:white;
+    classDef storage fill:#3F8624,stroke:#232F3E,color:white;
+
+    User([👤 Internet Users]):::user
+
+    subgraph AWS_Cloud ["☁️ AWS Cloud (us-east-1)"]
+        direction TB
+
+        IGW[Internet Gateway]:::aws
+        ECR[(🐳 Amazon ECR)]:::storage
+
+        subgraph VPC ["🔒 VPC: ledn-cluster-vpc (2 AZs)"]
+            direction TB
+
+            subgraph Public_Layer ["🌐 Public Subnets"]
+                direction LR
+                ALB[⚖️ AWS ALB]:::aws
+                NAT[NAT Gateway]:::aws
+            end
+
+            subgraph Private_Layer ["🛡️ Private Subnets"]
+                direction TB
+                
+                subgraph Fargate ["📦 Fargate Profile: main"]
+                    direction LR
+                    Pod1(Flask App):::compute
+                    Pod2(Flask App):::compute
+                    CoreDNS(CoreDNS):::compute
+                end
+            end
+        end
+    end
+
+    %% Traffic Flow
+    User ==>|HTTPS| IGW
+    IGW ==>|Ingress| ALB
+    ALB ==>|Target Group| Pod1
+    ALB ==>|Target Group| Pod2
+
+    %% Egress Flow (Updates/External APIs)
+    Pod1 -.->|Egress| NAT
+    Pod2 -.->|Egress| NAT
+    NAT -.-> IGW
+    
+    %% Image Pulling
+    ECR -.->|Pull Image| Pod1
+    ECR -.->|Pull Image| Pod2
+
+    %% Layout hints
+    ALB ~~~ NAT
+        </pre>
+    </div>
+
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'base',
+            flowchart: {
+                curve: 'basis',
+                padding: 20
+            }
+        });
+    </script>
+</body>
+
+</html>

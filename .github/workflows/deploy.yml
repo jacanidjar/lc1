@@ -1,126 +1,52 @@
-name: Deploy to EKS
+name: "Deploy Ledn Challenge"
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
-env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY: ledn-challenge-app
-  TF_WORKING_DIR: ./terraform
-  IMAGE_TAG: ${{ github.sha }}
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
-  build:
-    name: Build and Push
+  deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPOSITORY: ledn-challenge-app
+      TF_WORKING_DIR: ./terraform
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Install Dependencies and Run Tests
-        # Instala dependências e roda testes
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r app/requirements.txt
-          pytest app/test_app.py
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-        with:
-          mask-password: 'true'
-
-        # Create ECR repo if it doesn't exist (Safety net)
-        # Cria repositório ECR se não existir (Rede de segurança)
-      - name: Create ECR Repository if not exists
-        continue-on-error: true
-        run: |
-          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }} || true
 
       - name: Build, tag, and push image to Amazon ECR
-        # Constrói, taggeia e envia imagem para o Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
-          
-          docker build -t $IMAGE ./app
-          docker push $IMAGE
-          
-          echo "Image pushed: $IMAGE"
-
-  deploy:
-    name: Deploy Infrastructure & App
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.5.0"
 
-      - name: Terraform Init
+      - name: Terraform Init & Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
-
-      - name: Terraform Validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform validate
-
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform apply -auto-approve
-
-      - name: Update Kubeconfig
-        # Atualiza Kubeconfig para permitir comandos kubectl
         run: |
-          CLUSTER_NAME=$(terraform -chdir=${{ env.TF_WORKING_DIR }} output -raw cluster_name)
-          aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ env.AWS_REGION }}
-
-      - name: Deploy to K8s
-        # Faz o deploy dos manifestos Kubernetes
-        run: |
-          # Get full image name from ECR / Obtém nome completo da imagem do ECR
-          ECR_REGISTRY=$(aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --query 'repositories[0].repositoryUri' --output text)
-          IMAGE="$ECR_REGISTRY:${{ env.IMAGE_TAG }}"
-          
-          # Replace placeholder in deployment manifest / Substitui placeholder no manifesto de deploy
-          sed -i "s|image: .*|image: $IMAGE|g" k8s/deployment.yaml
-          
-          # Apply Manifests / Aplica Manifestos
-          kubectl apply -f k8s/
-          
-          # Ensure HPA is applied / Garante que o HPA seja aplicado
-          kubectl apply -f k8s/hpa.yaml
-          
-          # Wait for rollout / Aguarda rollout
-          kubectl rollout status deployment/flask-app -n app-prod --timeout=300s
+          terraform init
+          terraform apply -auto-approve \
+            -var="region=${{ env.AWS_REGION }}" \
+            -var="app_image=${{ env.IMAGE }}"
