@@ -31,7 +31,7 @@ variable "candidate_name" {
 variable "github_repo" {
   description = "GitHub Repository (Format: User/Repo)"
   type        = string
-  default     = "my-user/ledn-challenge"
+  default     = "jacanidjar/lc1"
 }
 
 variable "app_image" {
